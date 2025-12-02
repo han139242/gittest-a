@@ -16,6 +16,7 @@
 #include <QHostAddress>
 #include <QAbstractSocket>
 
+// 构造函数：初始化 UI 和网络组件
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
     m_textSource(nullptr),
@@ -58,6 +59,7 @@ MainWindow::~MainWindow()
 {
 }
 
+// 初始化 UI 界面布局和控件
 void MainWindow::setupUi()
 {
     resize(1100, 700);
@@ -132,6 +134,7 @@ void MainWindow::setupUi()
     central->setStyleSheet("QWidget { background:#f3f6fb; }");
 }
 
+// 初始化工具栏和操作按钮
 void MainWindow::setupToolbar()
 {
     QToolBar* toolbar = addToolBar(tr("工具"));
@@ -162,6 +165,7 @@ void MainWindow::setupToolbar()
     connect(actSendSocket,  &QAction::triggered, this, &MainWindow::onSendViaSocket);
 }
 
+// 初始化停靠窗口，用于显示 Huffman 树生成步骤
 void MainWindow::setupDock()
 {
     QDockWidget* dock = new QDockWidget(tr("哈夫曼树生成过程"), this);
@@ -174,12 +178,14 @@ void MainWindow::setupDock()
     addDockWidget(Qt::RightDockWidgetArea, dock);
 }
 
+// 在状态栏显示信息
 void MainWindow::showStatus(const QString& text)
 {
     if (m_statusLabel)
         m_statusLabel->setText(text);
 }
 
+// 统计字符频率并构造 Huffman 树
 void MainWindow::onBuildTree()
 {
     QString text = m_textSource->toPlainText();
@@ -198,7 +204,7 @@ void MainWindow::onBuildTree()
 
     showStatus(tr("已构造 Huffman 树"));
 }
-// 刷新表格
+// 刷新字符频率及编码表
 void MainWindow::updateCodeTable()
 {
     m_tableCodes->clearContents();
@@ -248,11 +254,13 @@ void MainWindow::updateStepsList()
     }
 }
 
+// 刷新 Huffman 树视图
 void MainWindow::updateTreeView()
 {
     m_treeWidget->setRoot(m_codec.root());
 }
 
+// 对原文进行编码
 void MainWindow::onEncode()
 {
     if (m_codes.isEmpty()) {
@@ -267,6 +275,7 @@ void MainWindow::onEncode()
     showStatus(tr("已对原文进行编码"));
 }
 
+// 本地发送：将编码结果复制到本地接收区
 void MainWindow::onSendLocal()
 {
     QString bits = m_textEncoded->toPlainText().trimmed();
@@ -274,6 +283,7 @@ void MainWindow::onSendLocal()
     showStatus(tr("已本地发送（复制编码到接收区）"));
 }
 
+// 本地译码：对本地接收区的 0/1 序列进行译码
 void MainWindow::onDecodeLocal()
 {
     QString bits = m_textReceivedLocal->toPlainText().trimmed();
@@ -296,6 +306,7 @@ void MainWindow::onDecodeLocal()
     showStatus(tr("已完成本地译码"));
 }
 
+// 比较校验：比较原文和译码后的文本是否一致
 void MainWindow::onCompare()
 {
     QString src = m_textSource->toPlainText();
@@ -328,6 +339,7 @@ void MainWindow::onCompare()
 
 //Socket 部分
 
+// 启动服务器监听
 void MainWindow::onStartServer()
 {
     if (m_server->isListening()) {
@@ -341,6 +353,7 @@ void MainWindow::onStartServer()
     }
 }
 
+// 关闭服务器
 void MainWindow::onStopServer()
 {
     m_server->stop();
@@ -348,6 +361,7 @@ void MainWindow::onStopServer()
     QMessageBox::information(this, tr("服务器"), tr("服务器已关闭。"));
 }
 
+// 客户端发送：通过 Socket 发送编码后的数据
 void MainWindow::onSendViaSocket()
 {
     QString bits = m_textEncoded->toPlainText().trimmed();
@@ -365,6 +379,7 @@ void MainWindow::onSendViaSocket()
     }
 }
 
+// 服务器接收到数据时的处理槽函数
 void MainWindow::onServerDataReceived(const QString &data)
 {
     m_textReceivedServer->setPlainText(data);
@@ -380,22 +395,26 @@ void MainWindow::onServerDataReceived(const QString &data)
     }
 }
 
+// 客户端接收到数据时的处理槽函数
 void MainWindow::onClientDataReceived(const QString &data)
 {
     // 客户端收到数据（如果是双向通信的话，目前主要是单向）
     Q_UNUSED(data);
 }
 
+// 服务器发生错误时的处理槽函数
 void MainWindow::onServerError(const QString &msg)
 {
     QMessageBox::critical(this, tr("服务器错误"), msg);
 }
 
+// 客户端发生错误时的处理槽函数
 void MainWindow::onClientError(const QString &msg)
 {
     showStatus(tr("客户端错误：%1").arg(msg));
 }
 
+// 客户端成功连接到服务器时的处理槽函数
 void MainWindow::onClientConnectedToServer()
 {
     showStatus(tr("客户端已连接服务器，准备发送"));
@@ -406,6 +425,7 @@ void MainWindow::onClientConnectedToServer()
     }
 }
 
+// 服务器端有新客户端连接时的处理槽函数
 void MainWindow::onServerClientConnected(const QString &addr)
 {
     showStatus(tr("有客户端连接到服务器: %1").arg(addr));

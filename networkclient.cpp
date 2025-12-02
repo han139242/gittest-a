@@ -1,5 +1,6 @@
 #include "networkclient.h"
 
+// 构造函数：初始化 TCP Socket
 NetworkClient::NetworkClient(QObject *parent)
     : QObject(parent), m_socket(new QTcpSocket(this))
 {
@@ -15,17 +16,20 @@ NetworkClient::~NetworkClient()
     disconnectFromServer();
 }
 
+// 连接到指定 IP 和端口的服务器
 void NetworkClient::connectToServer(const QString &ip, int port)
 {
     if (m_socket->state() == QAbstractSocket::ConnectedState) return;
     m_socket->connectToHost(ip, port);
 }
 
+// 断开与服务器的连接
 void NetworkClient::disconnectFromServer()
 {
     m_socket->disconnectFromHost();
 }
 
+// 向服务器发送消息
 void NetworkClient::send(const QString &message)
 {
     if (m_socket->state() == QAbstractSocket::ConnectedState) {
@@ -36,22 +40,26 @@ void NetworkClient::send(const QString &message)
     }
 }
 
+// 检查是否已连接到服务器
 bool NetworkClient::isConnected() const
 {
     return m_socket->state() == QAbstractSocket::ConnectedState;
 }
 
+// 连接成功时的槽函数
 void NetworkClient::onConnected()
 {
     emit connected();
 }
 
+// 读取服务器发送的数据
 void NetworkClient::onReadyRead()
 {
     QByteArray data = m_socket->readAll();
     emit dataReceived(QString::fromUtf8(data));
 }
 
+// 处理 Socket 错误
 void NetworkClient::onError(QAbstractSocket::SocketError socketError)
 {
     Q_UNUSED(socketError);

@@ -25,23 +25,37 @@ public:
     ~MainWindow();
 
 private slots:
+    // 统计字符频率并构造 Huffman 树
     void onBuildTree();
+    // 对原文进行编码
     void onEncode();
+    // 本地发送：将编码结果复制到本地接收区
     void onSendLocal();
+    // 本地译码：对本地接收区的 0/1 序列进行译码
     void onDecodeLocal();
+    // 比较校验：比较原文和译码后的文本是否一致
     void onCompare();
 
     // Socket 相关
+    // 启动服务器监听
     void onStartServer();
+    // 关闭服务器
     void onStopServer();
+    // 客户端发送：通过 Socket 发送编码后的数据
     void onSendViaSocket();
     
     // 新增槽函数用于处理 NetworkServer/Client 信号
+    // 服务器接收到数据时的处理槽函数
     void onServerDataReceived(const QString &data);
+    // 客户端接收到数据时的处理槽函数
     void onClientDataReceived(const QString &data);
+    // 服务器发生错误时的处理槽函数
     void onServerError(const QString &msg);
+    // 客户端发生错误时的处理槽函数
     void onClientError(const QString &msg);
+    // 客户端成功连接到服务器时的处理槽函数
     void onClientConnectedToServer();
+    // 服务器端有新客户端连接时的处理槽函数
     void onServerClientConnected(const QString &addr);
 
 private:
