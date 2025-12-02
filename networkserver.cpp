@@ -2,7 +2,7 @@
 
 // 构造函数：初始化 TCP 服务器
 NetworkServer::NetworkServer(QObject *parent)
-    : QObject(parent), m_server(new QTcpServer(this)), m_clientSocket(nullptr)
+    : QObject(parent), m_server(new QTcpServer(this))
 {
     connect(m_server, &QTcpServer::newConnection, this, &NetworkServer::onNewConnection);
 }
@@ -32,13 +32,14 @@ void NetworkServer::stop()
         m_server->close();
         emit serverStopped();
     }
-    if (m_clientSocket) {
-        // 断开所有信号连接，防止触发 onClientDisconnected 导致重复删除或逻辑错误
-        m_clientSocket->disconnect(this);
-        m_clientSocket->disconnectFromHost();
-        m_clientSocket->deleteLater();
-        m_clientSocket = nullptr;
+    
+    // 断开所有客户端
+    for (QTcpSocket* client : m_clients) {
+        client->disconnect(this);
+        client->disconnectFromHost();
+        client->deleteLater();
     }
+    m_clients.clear();
 }
 
 // 检查服务器是否正在监听
@@ -47,54 +48,55 @@ bool NetworkServer::isListening() const
     return m_server->isListening();
 }
 
-// 向已连接的客户端发送消息
-void NetworkServer::sendToClient(const QString &message)
+// 向所有连接的客户端广播消息
+void NetworkServer::broadcastMessage(const QString &message, QTcpSocket* exclude)
 {
-    if (m_clientSocket && m_clientSocket->state() == QAbstractSocket::ConnectedState) {
-        m_clientSocket->write(message.toUtf8());
-        m_clientSocket->flush();
-    } else {
-        emit errorOccurred("No client connected or socket not writable.");
+    QByteArray data = message.toUtf8();
+    for (QTcpSocket* client : m_clients) {
+        if (client != exclude && client->state() == QAbstractSocket::ConnectedState) {
+            client->write(data);
+            client->flush();
+        }
     }
 }
 
 // 处理新客户端连接请求
 void NetworkServer::onNewConnection()
 {
-    if (m_clientSocket) {
-        // 断开旧 Socket 的信号，防止其 disconnected 信号误删新 Socket
-        m_clientSocket->disconnect(this);
-        m_clientSocket->disconnectFromHost();
-        m_clientSocket->deleteLater();
+    while (m_server->hasPendingConnections()) {
+        QTcpSocket* clientSocket = m_server->nextPendingConnection();
+        connect(clientSocket, &QTcpSocket::readyRead, this, &NetworkServer::onReadyRead);
+        connect(clientSocket, &QTcpSocket::disconnected, this, &NetworkServer::onClientDisconnected);
+        
+        m_clients.append(clientSocket);
+        emit clientConnected(clientSocket->peerAddress().toString());
     }
-
-    m_clientSocket = m_server->nextPendingConnection();
-    connect(m_clientSocket, &QTcpSocket::readyRead, this, &NetworkServer::onReadyRead);
-    connect(m_clientSocket, &QTcpSocket::disconnected, this, &NetworkServer::onClientDisconnected);
-    
-    emit clientConnected(m_clientSocket->peerAddress().toString());
 }
 
 // 读取客户端发送的数据
 void NetworkServer::onReadyRead()
 {
-    if (!m_clientSocket) return;
-    QByteArray data = m_clientSocket->readAll();
-    emit dataReceived(QString::fromUtf8(data));
+    QTcpSocket* senderSocket = qobject_cast<QTcpSocket*>(sender());
+    if (!senderSocket) return;
+
+    QByteArray data = senderSocket->readAll();
+    QString msg = QString::fromUtf8(data);
+    
+    emit dataReceived(msg);
+    
+    // 广播给其他客户端
+    broadcastMessage(msg, senderSocket);
 }
 
 // 处理客户端断开连接
 void NetworkServer::onClientDisconnected()
 {
-    // 确保是当前活动的 Socket 发出的信号
-    QTcpSocket *senderSocket = qobject_cast<QTcpSocket*>(sender());
-    if (senderSocket && senderSocket != m_clientSocket) {
-        return;
-    }
+    QTcpSocket* senderSocket = qobject_cast<QTcpSocket*>(sender());
+    if (!senderSocket) return;
 
-    emit clientDisconnected();
-    if (m_clientSocket) {
-        m_clientSocket->deleteLater();
-        m_clientSocket = nullptr;
-    }
+    QString addr = senderSocket->peerAddress().toString();
+    m_clients.removeAll(senderSocket);
+    senderSocket->deleteLater();
+    
+    emit clientDisconnected(addr);
 }

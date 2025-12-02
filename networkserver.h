@@ -18,8 +18,8 @@ public:
     void stop();
     // 检查服务器是否正在监听
     bool isListening() const;
-    // 向已连接的客户端发送消息
-    void sendToClient(const QString &message);
+    // 向所有连接的客户端广播消息
+    void broadcastMessage(const QString &message, QTcpSocket* exclude = nullptr);
 
 signals:
     // 服务器启动信号
@@ -29,7 +29,7 @@ signals:
     // 客户端连接信号
     void clientConnected(QString clientAddress);
     // 客户端断开连接信号
-    void clientDisconnected();
+    void clientDisconnected(QString clientAddress);
     // 接收到数据信号
     void dataReceived(QString data);
     // 发生错误信号
@@ -45,7 +45,7 @@ private slots:
 
 private:
     QTcpServer *m_server;
-    QTcpSocket *m_clientSocket; // 简化处理，暂只维护一个活跃连接
+    QList<QTcpSocket*> m_clients; // 维护所有连接的客户端
 };
 
 #endif // NETWORKSERVER_H

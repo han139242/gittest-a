@@ -36,11 +36,17 @@ private slots:
     // 比较校验：比较原文和译码后的文本是否一致
     void onCompare();
 
+    // 文件操作
+    void onOpenFile();
+    void onSaveFile();
+
     // Socket 相关
     // 启动服务器监听
     void onStartServer();
     // 关闭服务器
     void onStopServer();
+    // 连接服务器
+    void onConnectToServer();
     // 客户端发送：通过 Socket 发送编码后的数据
     void onSendViaSocket();
     
@@ -69,6 +75,7 @@ private:
     HuffmanTreeWidget* m_treeWidget;
     QListWidget* m_listSteps;
     QLabel* m_statusLabel;
+    QLabel* m_lblCompressionRatio; // 显示压缩率
 
     // Huffman 编码器
     HuffmanCodec m_codec;
@@ -87,6 +94,7 @@ private:
     void updateCodeTable();     // 刷新频率/编码表
     void updateStepsList();     // 刷新构造步骤列表
     void updateTreeView();      // 刷新 Huffman 树视图
+    void updateCompressionRatio(); // 计算并显示压缩率
 
     void showStatus(const QString& text);
 };

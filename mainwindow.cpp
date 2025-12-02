@@ -16,6 +16,10 @@
 #include <QGroupBox>
 #include <QHostAddress>
 #include <QAbstractSocket>
+#include <QFileDialog>
+#include <QFile>
+#include <QTextStream>
+#include <QTime>
 
 // 构造函数：初始化 UI 和网络组件
 MainWindow::MainWindow(QWidget* parent)
@@ -29,6 +33,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_treeWidget(nullptr),
     m_listSteps(nullptr),
     m_statusLabel(nullptr),
+    m_lblCompressionRatio(nullptr),
     m_server(nullptr),
     m_client(nullptr)
 {
@@ -54,7 +59,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_client, &NetworkClient::errorOccurred, this, &MainWindow::onClientError);
 
     // 一些默认文字，方便测试
-    m_textSource->setPlainText(tr("哈夫曼编码测试 Huffman coding test.\n这是第二行。"));
+    m_textSource->setPlainText(tr("你好专业基础实训！"));
 }
 
 MainWindow::~MainWindow()
@@ -83,6 +88,12 @@ void MainWindow::setupUi()
     m_textEncoded->setPlaceholderText(tr("显示编码后的 0/1 序列..."));
     m_textEncoded->setReadOnly(true);
     layoutEncoded->addWidget(m_textEncoded);
+    
+    // 压缩率显示
+    m_lblCompressionRatio = new QLabel(tr("压缩率: N/A"), this);
+    m_lblCompressionRatio->setAlignment(Qt::AlignRight);
+    m_lblCompressionRatio->setStyleSheet("color: #409eff; font-weight: bold;");
+    layoutEncoded->addWidget(m_lblCompressionRatio);
 
     QSplitter* splitterTop = new QSplitter(Qt::Horizontal, this);
     splitterTop->addWidget(groupInput);
@@ -238,8 +249,12 @@ void MainWindow::setupToolbar()
     QAction* actDecode    = toolbar->addAction(tr("本地译码"));
     QAction* actCompare   = toolbar->addAction(tr("比较校验"));
     toolbar->addSeparator();
+    QAction* actOpenFile  = toolbar->addAction(tr("打开文件"));
+    QAction* actSaveFile  = toolbar->addAction(tr("保存编码"));
+    toolbar->addSeparator();
     QAction* actStartServer = toolbar->addAction(tr("启动服务器"));
     QAction* actStopServer  = toolbar->addAction(tr("关闭服务器"));
+    QAction* actConnect     = toolbar->addAction(tr("连接服务器"));
     QAction* actSendSocket  = toolbar->addAction(tr("客户端发送"));
 
     connect(actBuildTree, &QAction::triggered, this, &MainWindow::onBuildTree);
@@ -247,8 +262,11 @@ void MainWindow::setupToolbar()
     connect(actSendLocal, &QAction::triggered, this, &MainWindow::onSendLocal);
     connect(actDecode,    &QAction::triggered, this, &MainWindow::onDecodeLocal);
     connect(actCompare,   &QAction::triggered, this, &MainWindow::onCompare);
+    connect(actOpenFile,  &QAction::triggered, this, &MainWindow::onOpenFile);
+    connect(actSaveFile,  &QAction::triggered, this, &MainWindow::onSaveFile);
     connect(actStartServer, &QAction::triggered, this, &MainWindow::onStartServer);
     connect(actStopServer,  &QAction::triggered, this, &MainWindow::onStopServer);
+    connect(actConnect,     &QAction::triggered, this, &MainWindow::onConnectToServer);
     connect(actSendSocket,  &QAction::triggered, this, &MainWindow::onSendViaSocket);
 }
 
@@ -359,6 +377,8 @@ void MainWindow::onEncode()
     QString text = m_textSource->toPlainText();
     QString bits = m_codec.encode(text);
     m_textEncoded->setPlainText(bits);
+    
+    updateCompressionRatio();
     showStatus(tr("已对原文进行编码"));
 }
 
@@ -389,7 +409,9 @@ void MainWindow::onDecodeLocal()
         QMessageBox::critical(this, tr("错误"), tr("译码失败：接收的 0/1 序列不合法。"));
         return;
     }
-    m_textDecoded->setPlainText(decoded);
+    
+    QString time = QTime::currentTime().toString("HH:mm:ss");
+    m_textDecoded->append(QString("[%1] 本地译码: %2").arg(time).arg(decoded));
     showStatus(tr("已完成本地译码"));
 }
 
@@ -448,6 +470,17 @@ void MainWindow::onStopServer()
     QMessageBox::information(this, tr("服务器"), tr("服务器已关闭。"));
 }
 
+// 连接服务器
+void MainWindow::onConnectToServer()
+{
+    if (m_client->isConnected()) {
+        QMessageBox::information(this, tr("提示"), tr("已经连接到服务器。"));
+        return;
+    }
+    m_client->connectToServer(QHostAddress(QHostAddress::LocalHost).toString(), 5555);
+    showStatus(tr("正在连接服务器..."));
+}
+
 // 客户端发送：通过 Socket 发送编码后的数据
 void MainWindow::onSendViaSocket()
 {
@@ -458,18 +491,24 @@ void MainWindow::onSendViaSocket()
     }
 
     if (!m_client->isConnected()) {
-      m_client->connectToServer(QHostAddress(QHostAddress::LocalHost).toString(), 5555);
-        showStatus(tr("正在连接服务器..."));
-    } else {
-        m_client->send(bits);
-        showStatus(tr("已通过 socket 发送电文"));
+        QMessageBox::warning(this, tr("提示"), tr("未连接服务器，请先点击“连接服务器”按钮。"));
+        return;
     }
+    
+    m_client->send(bits);
+
+    // 将自己发送的数据也显示在接收区，形成完整的聊天记录
+    QString time = QTime::currentTime().toString("HH:mm:ss");
+    m_textReceivedServer->append(QString("<font color='blue'>[%1] 我发送: %2</font>").arg(time).arg(bits));
+
+    showStatus(tr("已通过 socket 发送电文"));
 }
 
 // 服务器接收到数据时的处理槽函数
 void MainWindow::onServerDataReceived(const QString &data)
 {
-    m_textReceivedServer->setPlainText(data);
+    QString time = QTime::currentTime().toString("HH:mm:ss");
+    m_textReceivedServer->append(QString("[%1] 服务器收到: %2").arg(time).arg(data));
     showStatus(tr("服务器已接收到电文"));
 
     // 自动译码
@@ -477,7 +516,7 @@ void MainWindow::onServerDataReceived(const QString &data)
         bool ok = false;
         QString decoded = m_codec.decode(data, &ok);
         if (ok) {
-            m_textDecoded->setPlainText(decoded);
+            m_textDecoded->append(QString("[%1] %2").arg(time).arg(decoded));
         }
     }
 }
@@ -485,8 +524,28 @@ void MainWindow::onServerDataReceived(const QString &data)
 // 客户端接收到数据时的处理槽函数
 void MainWindow::onClientDataReceived(const QString &data)
 {
-    // 客户端收到数据（如果是双向通信的话，目前主要是单向）
-    Q_UNUSED(data);
+    // 如果收到的数据和刚才自己发送的一样，就忽略（避免重复显示）
+    // 注意：这种简单的去重方式在极短时间内连续发送相同内容时可能会误判
+    // 但对于简单的演示程序来说足够了。更严谨的做法是协议头带 ID。
+    
+    // 这里我们假设服务器已经做了 exclude 处理（即不发回给发送者）
+    // 如果你仍然收到自己发的消息，说明服务器广播逻辑可能有漏网，或者你既是服务器又是客户端
+    
+    // 既然我们在 onSendViaSocket 里已经手动显示了“我发送: ...”
+    // 那么这里收到的应该都是“别人发的”
+    
+    QString time = QTime::currentTime().toString("HH:mm:ss");
+    m_textReceivedServer->append(QString("[%1] 收到: %2").arg(time).arg(data));
+    showStatus(tr("收到广播消息"));
+    
+    // 自动译码
+    if (m_codec.root()) {
+        bool ok = false;
+        QString decoded = m_codec.decode(data, &ok);
+        if (ok) {
+            m_textDecoded->append(QString("[%1] %2").arg(time).arg(decoded));
+        }
+    }
 }
 
 // 服务器发生错误时的处理槽函数
@@ -504,17 +563,78 @@ void MainWindow::onClientError(const QString &msg)
 // 客户端成功连接到服务器时的处理槽函数
 void MainWindow::onClientConnectedToServer()
 {
-    showStatus(tr("客户端已连接服务器，准备发送"));
-    QString bits = m_textEncoded->toPlainText().trimmed();
-    if (!bits.isEmpty()) {
-        m_client->send(bits);
-        showStatus(tr("客户端已发送电文"));
-    }
+    showStatus(tr("客户端已连接服务器"));
+    QMessageBox::information(this, tr("连接成功"), tr("已成功连接到服务器！"));
 }
 
 // 服务器端有新客户端连接时的处理槽函数
 void MainWindow::onServerClientConnected(const QString &addr)
 {
     showStatus(tr("有客户端连接到服务器: %1").arg(addr));
+}
+
+void MainWindow::onOpenFile()
+{
+    QString fileName = QFileDialog::getOpenFileName(this, tr("打开文件"), "", tr("文本文件 (*.txt);;所有文件 (*.*)"));
+    if (fileName.isEmpty()) return;
+
+    QFile file(fileName);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, tr("错误"), tr("无法打开文件"));
+        return;
+    }
+
+    QTextStream in(&file);
+    m_textSource->setPlainText(in.readAll());
+    file.close();
+    showStatus(tr("已加载文件: %1").arg(fileName));
+}
+
+void MainWindow::onSaveFile()
+{
+    QString fileName = QFileDialog::getSaveFileName(this, tr("保存编码"), "", tr("文本文件 (*.txt);;所有文件 (*.*)"));
+    if (fileName.isEmpty()) return;
+
+    QFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, tr("错误"), tr("无法保存文件"));
+        return;
+    }
+
+    QTextStream out(&file);
+    out << m_textEncoded->toPlainText();
+    file.close();
+    showStatus(tr("已保存编码到: %1").arg(fileName));
+}
+
+void MainWindow::updateCompressionRatio()
+{
+    QString source = m_textSource->toPlainText();
+    QString encoded = m_textEncoded->toPlainText();
+    
+    if (source.isEmpty() || encoded.isEmpty()) {
+        m_lblCompressionRatio->setText(tr("压缩率: N/A"));
+        return;
+    }
+
+    // 过滤掉非01字符
+    QString cleanEncoded;
+    for(QChar c : encoded) {
+        if(c == '0' || c == '1') cleanEncoded.append(c);
+    }
+
+    // 原文按8位/字符计算
+    // 注意：如果是中文，toPlainText()返回的是QString(UTF-16)，但通常压缩率对比的是ASCII或UTF-8字节流
+    // 这里题目公式是 "原文总字符数 * 8"，我们按 QString::length() * 8 计算
+    double originalBits = source.length() * 8.0;
+    double compressedBits = cleanEncoded.length();
+    
+    if (originalBits == 0) {
+        m_lblCompressionRatio->setText(tr("压缩率: N/A"));
+        return;
+    }
+
+    double ratio = (compressedBits / originalBits) * 100.0;
+    m_lblCompressionRatio->setText(tr("压缩率: %1%").arg(ratio, 0, 'f', 2));
 }
 
