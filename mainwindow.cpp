@@ -1,0 +1,412 @@
+#include "mainwindow.h"
+
+#include <QTextEdit>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QListWidget>
+#include <QPushButton>
+#include <QLabel>
+#include <QToolBar>
+#include <QStatusBar>
+#include <QDockWidget>
+#include <QMessageBox>
+#include <QSplitter>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QHostAddress>
+#include <QAbstractSocket>
+
+MainWindow::MainWindow(QWidget* parent)
+    : QMainWindow(parent),
+    m_textSource(nullptr),
+    m_textEncoded(nullptr),
+    m_textReceived(nullptr),
+    m_textDecoded(nullptr),
+    m_tableCodes(nullptr),
+    m_treeWidget(nullptr),
+    m_listSteps(nullptr),
+    m_statusLabel(nullptr),
+    m_server(nullptr),
+    m_serverSocket(nullptr),
+    m_clientSocket(nullptr)
+{
+    setupUi();
+    setupToolbar();
+    setupDock();
+
+    // 状态栏
+    m_statusLabel = new QLabel(this);
+    statusBar()->addPermanentWidget(m_statusLabel);
+    showStatus(tr("就绪"));
+
+    // Socket 初始化
+    m_server = new QTcpServer(this);
+    connect(m_server, &QTcpServer::newConnection,
+            this, &MainWindow::onNewConnection);
+
+    m_clientSocket = new QTcpSocket(this);
+    connect(m_clientSocket, &QTcpSocket::connected,
+            this, &MainWindow::onClientConnected);
+    connect(m_clientSocket,
+            QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::errorOccurred),
+            this, &MainWindow::onClientError);
+
+    // 一些默认文字，方便测试
+    m_textSource->setPlainText(tr("哈夫曼编码测试 Huffman coding test.\n这是第二行。"));
+}
+
+MainWindow::~MainWindow()
+{
+}
+
+void MainWindow::setupUi()
+{
+    resize(1100, 700);
+    setWindowTitle(tr("哈夫曼编/译码系统 - C++/Qt 实现"));
+
+    QWidget* central = new QWidget(this);
+    setCentralWidget(central);
+
+    // 上：原文 & 编码
+    m_textSource = new QTextEdit(this);
+    m_textEncoded = new QTextEdit(this);
+    m_textSource->setPlaceholderText(tr("在此输入待编码的文字..."));
+    m_textEncoded->setPlaceholderText(tr("显示编码后的 0/1 序列..."));
+    m_textSource->setStyleSheet("QTextEdit { background:#ffffff; border:1px solid #b0c4de; }");
+    m_textEncoded->setStyleSheet("QTextEdit { background:#fdfdfd; border:1px solid #b0c4de; }");
+
+    QSplitter* splitterTop = new QSplitter(Qt::Horizontal, this);
+    splitterTop->addWidget(m_textSource);
+    splitterTop->addWidget(m_textEncoded);
+    splitterTop->setStretchFactor(0, 1);
+    splitterTop->setStretchFactor(1, 1);
+
+    // 中：字符频率及编码表 + Huffman 树
+    m_tableCodes = new QTableWidget(this);
+    m_tableCodes->setColumnCount(3);
+    QStringList headers;
+    headers << tr("字符") << tr("频率") << tr("哈夫曼编码");
+    m_tableCodes->setHorizontalHeaderLabels(headers); // 设置表头
+    m_tableCodes->horizontalHeader()->setStretchLastSection(true); // 最后一列拉伸填满
+    m_tableCodes->setAlternatingRowColors(true);  // 隔行变色
+    m_tableCodes->setStyleSheet(
+        "QTableWidget { background:#ffffff; border:1px solid #b0c4de; }"
+        "QHeaderView::section { background:#f0f4ff; padding:4px; border:1px solid #b0c4de; }"
+        );
+
+    m_treeWidget = new HuffmanTreeWidget(this);
+
+    QSplitter* splitterMid = new QSplitter(Qt::Horizontal, this);
+    splitterMid->addWidget(m_tableCodes);
+    splitterMid->addWidget(m_treeWidget);
+    splitterMid->setStretchFactor(0, 3);
+    splitterMid->setStretchFactor(1, 4);
+
+    // 下：接收 & 译码
+    m_textReceived = new QTextEdit(this);
+    m_textDecoded = new QTextEdit(this);
+    m_textReceived->setPlaceholderText(tr("接收到的 0/1 序列将在这里显示..."));
+    m_textDecoded->setPlaceholderText(tr("译码后的文字将在这里显示..."));
+    m_textReceived->setStyleSheet("QTextEdit { background:#fdfdfd; border:1px solid #b0c4de; }");
+    m_textDecoded->setStyleSheet("QTextEdit { background:#ffffff; border:1px solid #b0c4de; }");
+
+    QSplitter* splitterBottom = new QSplitter(Qt::Horizontal, this);
+    splitterBottom->addWidget(m_textReceived);
+    splitterBottom->addWidget(m_textDecoded);
+    splitterBottom->setStretchFactor(0, 1);
+    splitterBottom->setStretchFactor(1, 1);
+
+    // 垂直总布局
+    QVBoxLayout* vLayout = new QVBoxLayout;
+    vLayout->addWidget(splitterTop, 3);
+    vLayout->addWidget(splitterMid, 3);
+    vLayout->addWidget(splitterBottom, 3);
+
+    central->setLayout(vLayout);
+
+    // 美化整体背景
+    central->setStyleSheet("QWidget { background:#f3f6fb; }");
+}
+
+void MainWindow::setupToolbar()
+{
+    QToolBar* toolbar = addToolBar(tr("工具"));
+    toolbar->setMovable(false);
+    toolbar->setStyleSheet(
+        "QToolBar { background:#e2e8f5; border-bottom:1px solid #a5b3d6; }"
+        "QToolButton { padding:4px 10px; margin:2px; }"
+        "QToolButton:hover { background:#d0dcf5; }"
+        );
+
+    QAction* actBuildTree = toolbar->addAction(tr("统计并构造树"));
+    QAction* actEncode    = toolbar->addAction(tr("对原文编码"));
+    QAction* actSendLocal = toolbar->addAction(tr("本地发送"));
+    QAction* actDecode    = toolbar->addAction(tr("本地译码"));
+    QAction* actCompare   = toolbar->addAction(tr("比较校验"));
+    toolbar->addSeparator();
+    QAction* actStartServer = toolbar->addAction(tr("启动服务器"));
+    QAction* actSendSocket  = toolbar->addAction(tr("客户端发送"));
+
+    connect(actBuildTree, &QAction::triggered, this, &MainWindow::onBuildTree);
+    connect(actEncode,    &QAction::triggered, this, &MainWindow::onEncode);
+    connect(actSendLocal, &QAction::triggered, this, &MainWindow::onSendLocal);
+    connect(actDecode,    &QAction::triggered, this, &MainWindow::onDecodeLocal);
+    connect(actCompare,   &QAction::triggered, this, &MainWindow::onCompare);
+    connect(actStartServer, &QAction::triggered, this, &MainWindow::onStartServer);
+    connect(actSendSocket,  &QAction::triggered, this, &MainWindow::onSendViaSocket);
+}
+
+void MainWindow::setupDock()
+{
+    QDockWidget* dock = new QDockWidget(tr("哈夫曼树生成过程"), this);
+    dock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_listSteps = new QListWidget(dock);
+    m_listSteps->setStyleSheet(
+        "QListWidget { background:#ffffff; border:1px solid #b0c4de; }"
+        );
+    dock->setWidget(m_listSteps);
+    addDockWidget(Qt::RightDockWidgetArea, dock);
+}
+
+void MainWindow::showStatus(const QString& text)
+{
+    if (m_statusLabel)
+        m_statusLabel->setText(text);
+}
+
+void MainWindow::onBuildTree()
+{
+    QString text = m_textSource->toPlainText();
+    if (text.isEmpty()) {
+        QMessageBox::warning(this, tr("提示"), tr("请先在原文输入框中输入文本。"));
+        return;
+    }
+
+    m_freqMap = m_codec.buildFrequency(text);
+    m_codec.buildTree(m_freqMap);
+    m_codes = m_codec.buildCodes();
+
+    updateCodeTable();
+    updateStepsList();
+    updateTreeView();
+
+    showStatus(tr("已构造 Huffman 树"));
+}
+// 刷新表格
+void MainWindow::updateCodeTable()
+{
+    m_tableCodes->clearContents();
+    m_tableCodes->setRowCount(m_freqMap.size());
+
+    QList<QChar> keys = m_freqMap.keys();
+    std::sort(keys.begin(), keys.end(), [this](const QChar& a, const QChar& b){
+        int fa = m_freqMap.value(a);
+        int fb = m_freqMap.value(b);
+        if (fa != fb) return fa > fb;
+        return a < b;
+    });
+
+    int row = 0;
+    for (QChar c : keys) {
+        int freq = m_freqMap.value(c);
+        QString code = m_codes.value(c);
+
+        QString displayChar;
+        if (c == ' ') displayChar = "[space]";
+        else if (c == '\n') displayChar = "[\\n]";
+        else if (c == '\t') displayChar = "[\\t]";
+        else displayChar = QString(c);
+
+        m_tableCodes->setItem(row, 0, new QTableWidgetItem(displayChar));
+        m_tableCodes->setItem(row, 1, new QTableWidgetItem(QString::number(freq)));
+        m_tableCodes->setItem(row, 2, new QTableWidgetItem(code));
+        row++;
+    }
+    m_tableCodes->resizeColumnsToContents();
+}
+// 刷新构造步骤列表
+void MainWindow::updateStepsList()
+{
+    m_listSteps->clear();
+    const auto& steps = m_codec.steps();
+    int stepNum = 1;
+    for (const auto& s : steps) {
+        QString line = tr("步骤 %1: 合并 [\"%2\" (%3)] 和 [\"%4\" (%5)] -> 频率 %6")
+                           .arg(stepNum++)
+                           .arg(s.leftChars)
+                           .arg(s.leftFreq)
+                           .arg(s.rightChars)
+                           .arg(s.rightFreq)
+                           .arg(s.mergedFreq);
+        m_listSteps->addItem(line);
+    }
+}
+
+void MainWindow::updateTreeView()
+{
+    m_treeWidget->setRoot(m_codec.root());
+}
+
+void MainWindow::onEncode()
+{
+    if (m_codes.isEmpty()) {
+        onBuildTree();
+        if (m_codes.isEmpty())
+            return;
+    }
+
+    QString text = m_textSource->toPlainText();
+    QString bits = m_codec.encode(text);
+    m_textEncoded->setPlainText(bits);
+    showStatus(tr("已对原文进行编码"));
+}
+
+void MainWindow::onSendLocal()
+{
+    QString bits = m_textEncoded->toPlainText().trimmed();
+    m_textReceived->setPlainText(bits);
+    showStatus(tr("已本地发送（复制编码到接收区）"));
+}
+
+void MainWindow::onDecodeLocal()
+{
+    QString bits = m_textReceived->toPlainText().trimmed();
+    if (bits.isEmpty()) {
+        QMessageBox::warning(this, tr("提示"), tr("接收区为空。"));
+        return;
+    }
+    if (!m_codec.root()) {
+        QMessageBox::warning(this, tr("提示"), tr("请先构造 Huffman 树。"));
+        return;
+    }
+
+    bool ok = false;
+    QString decoded = m_codec.decode(bits, &ok);
+    if (!ok) {
+        QMessageBox::critical(this, tr("错误"), tr("译码失败：接收的 0/1 序列不合法。"));
+        return;
+    }
+    m_textDecoded->setPlainText(decoded);
+    showStatus(tr("已完成本地译码"));
+}
+
+void MainWindow::onCompare()
+{
+    QString src = m_textSource->toPlainText();
+    QString dec = m_textDecoded->toPlainText();
+
+    if (src == dec) {
+        QMessageBox::information(this, tr("比较结果"),
+                                 tr("译码正确，原文与译码结果完全一致。"));
+    } else {
+        int len1 = src.length();
+        int len2 = dec.length();
+        int minLen = qMin(len1, len2);
+        int diffIndex = -1;
+        for (int i = 0; i < minLen; ++i) {
+            if (src[i] != dec[i]) {
+                diffIndex = i;
+                break;
+            }
+        }
+        if (diffIndex == -1)
+            diffIndex = minLen;
+
+        QMessageBox::warning(this, tr("比较结果"),
+                             tr("译码与原文不一致。\n"
+                                "原文长度: %1, 译码长度: %2\n"
+                                "第一个不同位置索引: %3")
+                                 .arg(len1).arg(len2).arg(diffIndex));
+    }
+}
+
+//Socket 部分
+
+void MainWindow::onStartServer()
+{
+    if (m_server->isListening()) {
+        QMessageBox::information(this, tr("提示"), tr("服务器已经在运行。"));
+        return;
+    }
+    bool ok = m_server->listen(QHostAddress::Any, 5555);
+    if (!ok) {
+        QMessageBox::critical(this, tr("错误"),
+                              tr("启动服务器失败：%1").arg(m_server->errorString()));
+        return;
+    }
+    showStatus(tr("服务器已启动，监听端口 5555"));
+    //可以在命令行用 netstat -an | find "5555" 检测
+    QMessageBox::information(this, tr("服务器"),
+                             tr("服务器已启动，监听端口 5555。请在客户端连接 127.0.0.1:5555。"));
+}
+
+void MainWindow::onSendViaSocket()
+{
+    QString bits = m_textEncoded->toPlainText().trimmed();
+    if (bits.isEmpty()) {
+        QMessageBox::warning(this, tr("提示"), tr("请先对原文编码，或编码结果为空。"));
+        return;
+    }
+
+    if (m_clientSocket->state() == QAbstractSocket::UnconnectedState) {
+        m_clientSocket->connectToHost(QHostAddress::LocalHost, 5555);
+    }
+
+    if (m_clientSocket->state() == QAbstractSocket::ConnectedState) {
+        m_clientSocket->write(bits.toUtf8());
+        m_clientSocket->flush();
+        showStatus(tr("已通过 socket 发送电文"));
+    } else {
+        // 连接还没建立，在 connected 槽中发送
+        // 这里先暂存到 textEncoded，不做额外缓存
+        showStatus(tr("正在连接服务器，连接成功后将发送电文"));
+    }
+}
+
+void MainWindow::onNewConnection()
+{
+    if (m_serverSocket) {
+        m_serverSocket->deleteLater();
+        m_serverSocket = nullptr;
+    }
+    m_serverSocket = m_server->nextPendingConnection();
+    connect(m_serverSocket, &QTcpSocket::readyRead,
+            this, &MainWindow::onServerReadyRead);
+    showStatus(tr("有客户端连接到服务器"));
+}
+
+void MainWindow::onServerReadyRead()
+{
+    if (!m_serverSocket)
+        return;
+    QByteArray data = m_serverSocket->readAll();
+    QString bits = QString::fromUtf8(data);
+    m_textReceived->setPlainText(bits);
+    showStatus(tr("服务器已接收到电文"));
+
+    // 自动译码
+    if (m_codec.root()) {
+        bool ok = false;
+        QString decoded = m_codec.decode(bits, &ok);
+        if (ok) {
+            m_textDecoded->setPlainText(decoded);
+        }
+    }
+}
+
+void MainWindow::onClientConnected()
+{
+    showStatus(tr("客户端已连接服务器，准备发送"));
+    QString bits = m_textEncoded->toPlainText().trimmed();
+    if (!bits.isEmpty()) {
+        m_clientSocket->write(bits.toUtf8());
+        m_clientSocket->flush();
+        showStatus(tr("客户端已发送电文"));
+    }
+}
+
+void MainWindow::onClientError(QAbstractSocket::SocketError)
+{
+    showStatus(tr("客户端 socket 错误：%1").arg(m_clientSocket->errorString()));
+}
+
