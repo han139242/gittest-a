@@ -33,6 +33,7 @@ private slots:
 
     // Socket 相关
     void onStartServer();
+    void onStopServer();
     void onSendViaSocket();
     void onNewConnection();
     void onServerReadyRead();
@@ -43,7 +44,8 @@ private:
     // UI 控件指针
     QTextEdit* m_textSource;
     QTextEdit* m_textEncoded;
-    QTextEdit* m_textReceived;
+    QTextEdit* m_textReceivedLocal;
+    QTextEdit* m_textReceivedServer;
     QTextEdit* m_textDecoded;
     QTableWidget* m_tableCodes;
     HuffmanTreeWidget* m_treeWidget;

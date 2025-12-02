@@ -20,7 +20,8 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
     m_textSource(nullptr),
     m_textEncoded(nullptr),
-    m_textReceived(nullptr),
+    m_textReceivedLocal(nullptr),
+    m_textReceivedServer(nullptr),
     m_textDecoded(nullptr),
     m_tableCodes(nullptr),
     m_treeWidget(nullptr),
@@ -103,18 +104,23 @@ void MainWindow::setupUi()
     splitterMid->setStretchFactor(1, 4);
 
     // 下：接收 & 译码
-    m_textReceived = new QTextEdit(this);
+    m_textReceivedLocal = new QTextEdit(this);
+    m_textReceivedServer = new QTextEdit(this);
     m_textDecoded = new QTextEdit(this);
-    m_textReceived->setPlaceholderText(tr("接收到的 0/1 序列将在这里显示..."));
+    m_textReceivedLocal->setPlaceholderText(tr("本地接收到的 0/1 序列..."));
+    m_textReceivedServer->setPlaceholderText(tr("服务器接收到的 0/1 序列..."));
     m_textDecoded->setPlaceholderText(tr("译码后的文字将在这里显示..."));
-    m_textReceived->setStyleSheet("QTextEdit { background:#fdfdfd; border:1px solid #b0c4de; }");
+    m_textReceivedLocal->setStyleSheet("QTextEdit { background:#fdfdfd; border:1px solid #b0c4de; }");
+    m_textReceivedServer->setStyleSheet("QTextEdit { background:#fdfdfd; border:1px solid #b0c4de; }");
     m_textDecoded->setStyleSheet("QTextEdit { background:#ffffff; border:1px solid #b0c4de; }");
 
     QSplitter* splitterBottom = new QSplitter(Qt::Horizontal, this);
-    splitterBottom->addWidget(m_textReceived);
+    splitterBottom->addWidget(m_textReceivedLocal);
+    splitterBottom->addWidget(m_textReceivedServer);
     splitterBottom->addWidget(m_textDecoded);
     splitterBottom->setStretchFactor(0, 1);
     splitterBottom->setStretchFactor(1, 1);
+    splitterBottom->setStretchFactor(2, 1);
 
     // 垂直总布局
     QVBoxLayout* vLayout = new QVBoxLayout;
@@ -145,6 +151,7 @@ void MainWindow::setupToolbar()
     QAction* actCompare   = toolbar->addAction(tr("比较校验"));
     toolbar->addSeparator();
     QAction* actStartServer = toolbar->addAction(tr("启动服务器"));
+    QAction* actStopServer  = toolbar->addAction(tr("关闭服务器"));
     QAction* actSendSocket  = toolbar->addAction(tr("客户端发送"));
 
     connect(actBuildTree, &QAction::triggered, this, &MainWindow::onBuildTree);
@@ -153,6 +160,7 @@ void MainWindow::setupToolbar()
     connect(actDecode,    &QAction::triggered, this, &MainWindow::onDecodeLocal);
     connect(actCompare,   &QAction::triggered, this, &MainWindow::onCompare);
     connect(actStartServer, &QAction::triggered, this, &MainWindow::onStartServer);
+    connect(actStopServer,  &QAction::triggered, this, &MainWindow::onStopServer);
     connect(actSendSocket,  &QAction::triggered, this, &MainWindow::onSendViaSocket);
 }
 
@@ -264,13 +272,13 @@ void MainWindow::onEncode()
 void MainWindow::onSendLocal()
 {
     QString bits = m_textEncoded->toPlainText().trimmed();
-    m_textReceived->setPlainText(bits);
+    m_textReceivedLocal->setPlainText(bits);
     showStatus(tr("已本地发送（复制编码到接收区）"));
 }
 
 void MainWindow::onDecodeLocal()
 {
-    QString bits = m_textReceived->toPlainText().trimmed();
+    QString bits = m_textReceivedLocal->toPlainText().trimmed();
     if (bits.isEmpty()) {
         QMessageBox::warning(this, tr("提示"), tr("接收区为空。"));
         return;
@@ -340,6 +348,21 @@ void MainWindow::onStartServer()
                              tr("服务器已启动，监听端口 5555。请在客户端连接 127.0.0.1:5555。"));
 }
 
+void MainWindow::onStopServer()
+{
+    if (!m_server->isListening()) {
+        QMessageBox::information(this, tr("提示"), tr("服务器未运行。"));
+        return;
+    }
+    m_server->close();
+    if (m_serverSocket) {
+        m_serverSocket->disconnectFromHost();
+        m_serverSocket = nullptr;
+    }
+    showStatus(tr("服务器已关闭"));
+    QMessageBox::information(this, tr("服务器"), tr("服务器已关闭。"));
+}
+
 void MainWindow::onSendViaSocket()
 {
     QString bits = m_textEncoded->toPlainText().trimmed();
@@ -381,7 +404,7 @@ void MainWindow::onServerReadyRead()
         return;
     QByteArray data = m_serverSocket->readAll();
     QString bits = QString::fromUtf8(data);
-    m_textReceived->setPlainText(bits);
+    m_textReceivedServer->setPlainText(bits);
     showStatus(tr("服务器已接收到电文"));
 
     // 自动译码
