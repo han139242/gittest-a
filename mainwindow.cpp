@@ -28,8 +28,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_listSteps(nullptr),
     m_statusLabel(nullptr),
     m_server(nullptr),
-    m_serverSocket(nullptr),
-    m_clientSocket(nullptr)
+    m_client(nullptr)
 {
     setupUi();
     setupToolbar();
@@ -41,16 +40,15 @@ MainWindow::MainWindow(QWidget* parent)
     showStatus(tr("就绪"));
 
     // Socket 初始化
-    m_server = new QTcpServer(this);
-    connect(m_server, &QTcpServer::newConnection,
-            this, &MainWindow::onNewConnection);
+    m_server = new NetworkServer(this);
+    connect(m_server, &NetworkServer::dataReceived, this, &MainWindow::onServerDataReceived);
+    connect(m_server, &NetworkServer::clientConnected, this, &MainWindow::onServerClientConnected);
+    connect(m_server, &NetworkServer::errorOccurred, this, &MainWindow::onServerError);
 
-    m_clientSocket = new QTcpSocket(this);
-    connect(m_clientSocket, &QTcpSocket::connected,
-            this, &MainWindow::onClientConnected);
-    connect(m_clientSocket,
-            QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::errorOccurred),
-            this, &MainWindow::onClientError);
+    m_client = new NetworkClient(this);
+    connect(m_client, &NetworkClient::connected, this, &MainWindow::onClientConnectedToServer);
+    connect(m_client, &NetworkClient::dataReceived, this, &MainWindow::onClientDataReceived);
+    connect(m_client, &NetworkClient::errorOccurred, this, &MainWindow::onClientError);
 
     // 一些默认文字，方便测试
     m_textSource->setPlainText(tr("哈夫曼编码测试 Huffman coding test.\n这是第二行。"));
@@ -336,29 +334,16 @@ void MainWindow::onStartServer()
         QMessageBox::information(this, tr("提示"), tr("服务器已经在运行。"));
         return;
     }
-    bool ok = m_server->listen(QHostAddress::Any, 5555);
-    if (!ok) {
-        QMessageBox::critical(this, tr("错误"),
-                              tr("启动服务器失败：%1").arg(m_server->errorString()));
-        return;
+    if (m_server->start(5555)) {
+        showStatus(tr("服务器已启动，监听端口 5555"));
+        QMessageBox::information(this, tr("服务器"),
+                                 tr("服务器已启动，监听端口 5555。请在客户端连接 127.0.0.1:5555。"));
     }
-    showStatus(tr("服务器已启动，监听端口 5555"));
-    //可以在命令行用 netstat -an | find "5555" 检测
-    QMessageBox::information(this, tr("服务器"),
-                             tr("服务器已启动，监听端口 5555。请在客户端连接 127.0.0.1:5555。"));
 }
 
 void MainWindow::onStopServer()
 {
-    if (!m_server->isListening()) {
-        QMessageBox::information(this, tr("提示"), tr("服务器未运行。"));
-        return;
-    }
-    m_server->close();
-    if (m_serverSocket) {
-        m_serverSocket->disconnectFromHost();
-        m_serverSocket = nullptr;
-    }
+    m_server->stop();
     showStatus(tr("服务器已关闭"));
     QMessageBox::information(this, tr("服务器"), tr("服务器已关闭。"));
 }
@@ -371,65 +356,58 @@ void MainWindow::onSendViaSocket()
         return;
     }
 
-    if (m_clientSocket->state() == QAbstractSocket::UnconnectedState) {
-        m_clientSocket->connectToHost(QHostAddress::LocalHost, 5555);
-    }
-
-    if (m_clientSocket->state() == QAbstractSocket::ConnectedState) {
-        m_clientSocket->write(bits.toUtf8());
-        m_clientSocket->flush();
-        showStatus(tr("已通过 socket 发送电文"));
+    if (!m_client->isConnected()) {
+      m_client->connectToServer(QHostAddress(QHostAddress::LocalHost).toString(), 5555);
+        showStatus(tr("正在连接服务器..."));
     } else {
-        // 连接还没建立，在 connected 槽中发送
-        // 这里先暂存到 textEncoded，不做额外缓存
-        showStatus(tr("正在连接服务器，连接成功后将发送电文"));
+        m_client->send(bits);
+        showStatus(tr("已通过 socket 发送电文"));
     }
 }
 
-void MainWindow::onNewConnection()
+void MainWindow::onServerDataReceived(const QString &data)
 {
-    if (m_serverSocket) {
-        m_serverSocket->deleteLater();
-        m_serverSocket = nullptr;
-    }
-    m_serverSocket = m_server->nextPendingConnection();
-    connect(m_serverSocket, &QTcpSocket::readyRead,
-            this, &MainWindow::onServerReadyRead);
-    showStatus(tr("有客户端连接到服务器"));
-}
-
-void MainWindow::onServerReadyRead()
-{
-    if (!m_serverSocket)
-        return;
-    QByteArray data = m_serverSocket->readAll();
-    QString bits = QString::fromUtf8(data);
-    m_textReceivedServer->setPlainText(bits);
+    m_textReceivedServer->setPlainText(data);
     showStatus(tr("服务器已接收到电文"));
 
     // 自动译码
     if (m_codec.root()) {
         bool ok = false;
-        QString decoded = m_codec.decode(bits, &ok);
+        QString decoded = m_codec.decode(data, &ok);
         if (ok) {
             m_textDecoded->setPlainText(decoded);
         }
     }
 }
 
-void MainWindow::onClientConnected()
+void MainWindow::onClientDataReceived(const QString &data)
+{
+    // 客户端收到数据（如果是双向通信的话，目前主要是单向）
+    Q_UNUSED(data);
+}
+
+void MainWindow::onServerError(const QString &msg)
+{
+    QMessageBox::critical(this, tr("服务器错误"), msg);
+}
+
+void MainWindow::onClientError(const QString &msg)
+{
+    showStatus(tr("客户端错误：%1").arg(msg));
+}
+
+void MainWindow::onClientConnectedToServer()
 {
     showStatus(tr("客户端已连接服务器，准备发送"));
     QString bits = m_textEncoded->toPlainText().trimmed();
     if (!bits.isEmpty()) {
-        m_clientSocket->write(bits.toUtf8());
-        m_clientSocket->flush();
+        m_client->send(bits);
         showStatus(tr("客户端已发送电文"));
     }
 }
 
-void MainWindow::onClientError(QAbstractSocket::SocketError)
+void MainWindow::onServerClientConnected(const QString &addr)
 {
-    showStatus(tr("客户端 socket 错误：%1").arg(m_clientSocket->errorString()));
+    showStatus(tr("有客户端连接到服务器: %1").arg(addr));
 }
 

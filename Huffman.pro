@@ -1,4 +1,4 @@
-QT       += core gui \
+QT       += core gui network \
     quick
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
@@ -13,12 +13,16 @@ SOURCES += \
     huffman.cpp \
     huffmantreewidget.cpp \
     main.cpp \
-    mainwindow.cpp
+    mainwindow.cpp \
+    networkserver.cpp \
+    networkclient.cpp
 
 HEADERS += \
     huffman.h \
     huffmantreewidget.h \
-    mainwindow.h
+    mainwindow.h \
+    networkserver.h \
+    networkclient.h
 
 FORMS += \
     mainwindow.ui
