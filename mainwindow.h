@@ -80,6 +80,7 @@ private:
     NetworkClient* m_client;
 
     void setupUi();             // 创建和布局 UI
+    void setupStyle();          // 新增：设置样式表
     void setupToolbar();        // 创建工具栏和按钮
     void setupDock();           // 创建步骤日志停靠窗口
 

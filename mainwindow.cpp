@@ -13,6 +13,7 @@
 #include <QSplitter>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QGroupBox>
 #include <QHostAddress>
 #include <QAbstractSocket>
 
@@ -32,6 +33,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_client(nullptr)
 {
     setupUi();
+    setupStyle();
     setupToolbar();
     setupDock();
 
@@ -62,76 +64,161 @@ MainWindow::~MainWindow()
 // 初始化 UI 界面布局和控件
 void MainWindow::setupUi()
 {
-    resize(1100, 700);
+    resize(1200, 800);
     setWindowTitle(tr("哈夫曼编/译码系统 - C++/Qt 实现"));
 
     QWidget* central = new QWidget(this);
     setCentralWidget(central);
 
-    // 上：原文 & 编码
+    // 1. Top Section: Input & Encoded Output
+    QGroupBox* groupInput = new QGroupBox(tr("原文输入"), this);
+    QVBoxLayout* layoutInput = new QVBoxLayout(groupInput);
     m_textSource = new QTextEdit(this);
-    m_textEncoded = new QTextEdit(this);
     m_textSource->setPlaceholderText(tr("在此输入待编码的文字..."));
+    layoutInput->addWidget(m_textSource);
+
+    QGroupBox* groupEncoded = new QGroupBox(tr("编码结果 (0/1)"), this);
+    QVBoxLayout* layoutEncoded = new QVBoxLayout(groupEncoded);
+    m_textEncoded = new QTextEdit(this);
     m_textEncoded->setPlaceholderText(tr("显示编码后的 0/1 序列..."));
-    m_textSource->setStyleSheet("QTextEdit { background:#ffffff; border:1px solid #b0c4de; }");
-    m_textEncoded->setStyleSheet("QTextEdit { background:#fdfdfd; border:1px solid #b0c4de; }");
+    m_textEncoded->setReadOnly(true);
+    layoutEncoded->addWidget(m_textEncoded);
 
     QSplitter* splitterTop = new QSplitter(Qt::Horizontal, this);
-    splitterTop->addWidget(m_textSource);
-    splitterTop->addWidget(m_textEncoded);
+    splitterTop->addWidget(groupInput);
+    splitterTop->addWidget(groupEncoded);
     splitterTop->setStretchFactor(0, 1);
     splitterTop->setStretchFactor(1, 1);
 
-    // 中：字符频率及编码表 + Huffman 树
+    // 2. Middle Section: Frequency Table & Tree Visualization
+    QGroupBox* groupTable = new QGroupBox(tr("字符频率表"), this);
+    QVBoxLayout* layoutTable = new QVBoxLayout(groupTable);
     m_tableCodes = new QTableWidget(this);
     m_tableCodes->setColumnCount(3);
-    QStringList headers;
-    headers << tr("字符") << tr("频率") << tr("哈夫曼编码");
-    m_tableCodes->setHorizontalHeaderLabels(headers); // 设置表头
-    m_tableCodes->horizontalHeader()->setStretchLastSection(true); // 最后一列拉伸填满
-    m_tableCodes->setAlternatingRowColors(true);  // 隔行变色
-    m_tableCodes->setStyleSheet(
-        "QTableWidget { background:#ffffff; border:1px solid #b0c4de; }"
-        "QHeaderView::section { background:#f0f4ff; padding:4px; border:1px solid #b0c4de; }"
-        );
+    m_tableCodes->setHorizontalHeaderLabels({tr("字符"), tr("频率"), tr("哈夫曼编码")});
+    m_tableCodes->horizontalHeader()->setStretchLastSection(true);
+    m_tableCodes->setAlternatingRowColors(true);
+    m_tableCodes->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tableCodes->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    layoutTable->addWidget(m_tableCodes);
 
+    QGroupBox* groupTree = new QGroupBox(tr("哈夫曼树可视化"), this);
+    QVBoxLayout* layoutTree = new QVBoxLayout(groupTree);
     m_treeWidget = new HuffmanTreeWidget(this);
+    layoutTree->addWidget(m_treeWidget);
 
     QSplitter* splitterMid = new QSplitter(Qt::Horizontal, this);
-    splitterMid->addWidget(m_tableCodes);
-    splitterMid->addWidget(m_treeWidget);
-    splitterMid->setStretchFactor(0, 3);
-    splitterMid->setStretchFactor(1, 4);
+    splitterMid->addWidget(groupTable);
+    splitterMid->addWidget(groupTree);
+    splitterMid->setStretchFactor(0, 1);
+    splitterMid->setStretchFactor(1, 2);
 
-    // 下：接收 & 译码
+    // 3. Bottom Section: Received Data & Decoded Output
+    QGroupBox* groupRecvLocal = new QGroupBox(tr("本地接收 (模拟)"), this);
+    QVBoxLayout* layoutRecvLocal = new QVBoxLayout(groupRecvLocal);
     m_textReceivedLocal = new QTextEdit(this);
+    m_textReceivedLocal->setPlaceholderText(tr("本地直接接收的编码..."));
+    m_textReceivedLocal->setReadOnly(true);
+    layoutRecvLocal->addWidget(m_textReceivedLocal);
+
+    QGroupBox* groupRecvServer = new QGroupBox(tr("服务器接收 (网络)"), this);
+    QVBoxLayout* layoutRecvServer = new QVBoxLayout(groupRecvServer);
     m_textReceivedServer = new QTextEdit(this);
+    m_textReceivedServer->setPlaceholderText(tr("从服务器接收的编码..."));
+    m_textReceivedServer->setReadOnly(true);
+    layoutRecvServer->addWidget(m_textReceivedServer);
+
+    QGroupBox* groupDecoded = new QGroupBox(tr("译码结果"), this);
+    QVBoxLayout* layoutDecoded = new QVBoxLayout(groupDecoded);
     m_textDecoded = new QTextEdit(this);
-    m_textReceivedLocal->setPlaceholderText(tr("本地接收到的 0/1 序列..."));
-    m_textReceivedServer->setPlaceholderText(tr("服务器接收到的 0/1 序列..."));
-    m_textDecoded->setPlaceholderText(tr("译码后的文字将在这里显示..."));
-    m_textReceivedLocal->setStyleSheet("QTextEdit { background:#fdfdfd; border:1px solid #b0c4de; }");
-    m_textReceivedServer->setStyleSheet("QTextEdit { background:#fdfdfd; border:1px solid #b0c4de; }");
-    m_textDecoded->setStyleSheet("QTextEdit { background:#ffffff; border:1px solid #b0c4de; }");
+    m_textDecoded->setPlaceholderText(tr("最终译码还原的文字..."));
+    m_textDecoded->setReadOnly(true);
+    layoutDecoded->addWidget(m_textDecoded);
 
     QSplitter* splitterBottom = new QSplitter(Qt::Horizontal, this);
-    splitterBottom->addWidget(m_textReceivedLocal);
-    splitterBottom->addWidget(m_textReceivedServer);
-    splitterBottom->addWidget(m_textDecoded);
-    splitterBottom->setStretchFactor(0, 1);
-    splitterBottom->setStretchFactor(1, 1);
-    splitterBottom->setStretchFactor(2, 1);
+    splitterBottom->addWidget(groupRecvLocal);
+    splitterBottom->addWidget(groupRecvServer);
+    splitterBottom->addWidget(groupDecoded);
 
-    // 垂直总布局
-    QVBoxLayout* vLayout = new QVBoxLayout;
-    vLayout->addWidget(splitterTop, 3);
-    vLayout->addWidget(splitterMid, 3);
-    vLayout->addWidget(splitterBottom, 3);
+    // Main Layout
+    QSplitter* splitterMain = new QSplitter(Qt::Vertical, this);
+    splitterMain->addWidget(splitterTop);
+    splitterMain->addWidget(splitterMid);
+    splitterMain->addWidget(splitterBottom);
+    splitterMain->setStretchFactor(0, 1);
+    splitterMain->setStretchFactor(1, 2);
+    splitterMain->setStretchFactor(2, 1);
 
-    central->setLayout(vLayout);
+    QVBoxLayout* mainLayout = new QVBoxLayout(central);
+    mainLayout->addWidget(splitterMain);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
 
-    // 美化整体背景
-    central->setStyleSheet("QWidget { background:#f3f6fb; }");
+    // Connect selection change for path highlighting
+    connect(m_textEncoded, &QTextEdit::selectionChanged, [this](){
+        QString selected = m_textEncoded->textCursor().selectedText();
+        QString cleanCode;
+        for(QChar c : selected) {
+            if(c == '0' || c == '1') cleanCode.append(c);
+        }
+        if(!cleanCode.isEmpty()) {
+            m_treeWidget->highlightPath(cleanCode);
+        }
+    });
+}
+
+void MainWindow::setupStyle()
+{
+    // Modern Flat Style
+    QString qss = R"(
+        QMainWindow {
+            background-color: #f0f2f5;
+        }
+        QGroupBox {
+            font-weight: bold;
+            border: 1px solid #dcdfe6;
+            border-radius: 6px;
+            margin-top: 12px;
+            background-color: #ffffff;
+            padding-top: 10px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            left: 10px;
+            padding: 0 5px;
+            color: #303133;
+        }
+        QTextEdit, QTableWidget, QListWidget {
+            border: 1px solid #e4e7ed;
+            border-radius: 4px;
+            background-color: #ffffff;
+            selection-background-color: #409eff;
+            font-family: "Consolas", "Microsoft YaHei";
+            font-size: 10pt;
+        }
+        QHeaderView::section {
+            background-color: #f5f7fa;
+            padding: 4px;
+            border: none;
+            border-bottom: 1px solid #e4e7ed;
+            border-right: 1px solid #e4e7ed;
+            font-weight: bold;
+            color: #606266;
+        }
+        QSplitter::handle {
+            background-color: #dcdfe6;
+            width: 2px;
+            height: 2px;
+        }
+        QStatusBar {
+            background-color: #ffffff;
+            color: #606266;
+        }
+        QLabel {
+            color: #606266;
+        }
+    )";
+    this->setStyleSheet(qss);
 }
 
 // 初始化工具栏和操作按钮

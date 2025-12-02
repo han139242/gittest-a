@@ -7,6 +7,7 @@
 #include <QFontMetrics> // 字体测量
 #include <QPalette> // 调色板
 #include <QtMath> // 数学函数
+#include <QTimer>
 
 HuffmanTreeWidget::HuffmanTreeWidget(QWidget* parent)
     : QGraphicsView(parent),
@@ -14,7 +15,9 @@ HuffmanTreeWidget::HuffmanTreeWidget(QWidget* parent)
     m_root(nullptr),
     m_levelHeight(80.0), // 层高80
     m_hSpacing(25.0), //间距20
-    m_minNodeWidth(36.0) // 圆直径36
+    m_minNodeWidth(36.0), // 圆直径36
+    m_animationTimer(new QTimer(this)),
+    m_drawIndex(0)
 {
     setScene(m_scene);
 
@@ -31,7 +34,9 @@ HuffmanTreeWidget::HuffmanTreeWidget(QWidget* parent)
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorUnderMouse);
 
-    setMinimumHeight(200);
+    setMinimumHeight(300); // 增加最小高度
+
+    connect(m_animationTimer, &QTimer::timeout, this, &HuffmanTreeWidget::onAnimationStep);
 }
 
 void HuffmanTreeWidget::setRoot(HuffmanNode* root)
@@ -42,9 +47,16 @@ void HuffmanTreeWidget::setRoot(HuffmanNode* root)
 
 void HuffmanTreeWidget::rebuildScene()
 {
+    // 停止之前的动画
+    m_animationTimer->stop();
+    m_nodesToDraw.clear();
+    m_drawIndex = 0;
+
     // 清空旧图
     m_scene->clear();
     m_layout.clear();
+    m_nodeItems.clear();
+    m_edgeItems.clear();
 
     if (!m_root) {
         QGraphicsTextItem* textItem = m_scene->addText(tr("尚未构造 Huffman 树"));
@@ -65,15 +77,158 @@ void HuffmanTreeWidget::rebuildScene()
 
     Q_UNUSED(info); //抑制未使用参数的编译警告
 
-    // 2. 根据布局在 scene 中绘制节点和连线
-    buildGraphics();
+    // 2. 准备动画数据
+    collectNodesForAnimation(m_root);
+    
+    // 3. 启动动画，每 500ms 画一个节点（或者根据节点数量动态调整速度）
+    m_animationTimer->start(300); 
+}
 
-    // 3. 适配当前窗口
-    resetTransform();
-    QRectF bounds = m_scene->itemsBoundingRect();
-    if (!bounds.isNull()) {
-        bounds.adjust(-40, -40, 40, 40);
-        fitInView(bounds, Qt::KeepAspectRatio);
+void HuffmanTreeWidget::collectNodesForAnimation(HuffmanNode* node)
+{
+    if (!node) return;
+    // 后序遍历：先画子节点，再画父节点，模拟合并过程
+    collectNodesForAnimation(node->left);
+    collectNodesForAnimation(node->right);
+    m_nodesToDraw.append(node);
+}
+
+void HuffmanTreeWidget::onAnimationStep()
+{
+    if (m_drawIndex >= m_nodesToDraw.size()) {
+        m_animationTimer->stop();
+        // 动画结束后适配视图
+        QRectF bounds = m_scene->itemsBoundingRect();
+        if (!bounds.isNull()) {
+            bounds.adjust(-40, -40, 40, 40);
+            fitInView(bounds, Qt::KeepAspectRatio);
+        }
+        return;
+    }
+
+    HuffmanNode* node = m_nodesToDraw[m_drawIndex];
+    drawNode(node);
+    m_drawIndex++;
+    
+    // 每次绘制后稍微调整视图以确保新节点可见（可选）
+    // ensureVisible(m_nodeItems[node]);
+}
+
+void HuffmanTreeWidget::drawNode(HuffmanNode* node)
+{
+    if (!m_layout.contains(node)) return;
+
+    LayoutInfo info = m_layout[node];
+    QPointF center = info.pos;
+
+    QFont font;
+    font.setPointSize(9);
+    QFontMetrics fm(font);
+
+    // 1. 画连线（连接到子节点）
+    auto drawEdge = [&](HuffmanNode* childNode) {
+        if (!childNode) return;
+        if (!m_layout.contains(childNode)) return;
+
+        QPointF cPos = m_layout.value(childNode).pos;
+        double nodeH = 24.0;
+        QPointF pBottom(center.x(), center.y() + nodeH / 2.0);
+        QPointF cTop   (cPos.x(), cPos.y() - nodeH / 2.0);
+
+        QGraphicsLineItem* line = m_scene->addLine(QLineF(pBottom, cTop),
+                         QPen(QColor(180, 180, 200), 1.4));
+        line->setZValue(0);
+        m_edgeItems[childNode] = line; // 记录连线，key是子节点
+    };
+
+    drawEdge(node->left);
+    drawEdge(node->right);
+
+    // 2. 画节点
+    QString text;
+    if (!node->left && !node->right) {
+        QChar c = node->ch;
+        QString showChar;
+        if (c == ' ')      showChar = "[sp]";
+        else if (c == '\n') showChar = "[\\n]";
+        else if (c == '\t') showChar = "[\\t]";
+        else               showChar = c;
+        text = QString("%1\n%2").arg(showChar).arg(node->freq);
+    } else {
+        text = QString::number(node->freq);
+    }
+
+    QRectF textRect = fm.boundingRect(QRect(0, 0, 1000, 1000),
+                                      Qt::AlignCenter | Qt::TextWordWrap,
+                                      text);
+    double marginW = 10.0;
+    double marginH = 4.0;
+    double rectW = qMax(m_minNodeWidth, textRect.width() + marginW * 2);
+    double rectH = textRect.height() + marginH * 2;
+
+    QRectF nodeRect(center.x() - rectW / 2.0,
+                    center.y() - rectH / 2.0,
+                    rectW, rectH);
+
+    QGraphicsRectItem* box = m_scene->addRect(
+        nodeRect,
+        Qt::NoPen,
+        QBrush(QColor(110, 180, 255, 220)));
+    box->setZValue(1);
+    m_nodeItems[node] = box; // 记录节点图形项
+
+    QGraphicsTextItem* textItem = m_scene->addText(text, font);
+    textItem->setDefaultTextColor(Qt::white);
+    QRectF br = textItem->boundingRect();
+    textItem->setPos(center.x() - br.width()/2.0,
+                     center.y() - br.height()/2.0);
+    textItem->setZValue(2);
+}
+
+void HuffmanTreeWidget::buildGraphics()
+{
+    // 此函数不再直接使用，逻辑移至 drawNode 和 onAnimationStep
+    // 但为了兼容性保留空实现或直接调用全量绘制
+}
+
+void HuffmanTreeWidget::highlightPath(const QString& code)
+{
+    // 1. 重置所有节点和连线颜色
+    for (auto item : m_nodeItems) {
+        item->setBrush(QBrush(QColor(110, 180, 255, 220)));
+    }
+    for (auto item : m_edgeItems) {
+        item->setPen(QPen(QColor(180, 180, 200), 1.4));
+    }
+
+    if (!m_root || code.isEmpty()) return;
+
+    // 2. 遍历路径并高亮
+    HuffmanNode* curr = m_root;
+    
+    // 高亮根节点
+    if (m_nodeItems.contains(curr)) {
+        m_nodeItems[curr]->setBrush(QBrush(QColor(255, 100, 100, 220))); // 红色
+    }
+
+    for (QChar c : code) {
+        HuffmanNode* next = nullptr;
+        if (c == '0') next = curr->left;
+        else if (c == '1') next = curr->right;
+
+        if (next) {
+            // 高亮连线
+            if (m_edgeItems.contains(next)) {
+                m_edgeItems[next]->setPen(QPen(QColor(255, 0, 0), 2.5));
+            }
+            // 高亮节点
+            if (m_nodeItems.contains(next)) {
+                m_nodeItems[next]->setBrush(QBrush(QColor(255, 100, 100, 220)));
+            }
+            curr = next;
+        } else {
+            break; 
+        }
     }
 }
 
@@ -132,96 +287,6 @@ HuffmanTreeWidget::layoutSubtree(HuffmanNode* node, int depth, double x)
 
     m_layout[node] = info;
     return info;
-}
-
-void HuffmanTreeWidget::buildGraphics()
-{
-    if (!m_root)
-        return;
-
-    QFont font;
-    font.setPointSize(9);
-    QFontMetrics fm(font);
-
-    // 1. 先画线（保证在线的下面）
-    for (auto it = m_layout.constBegin(); it != m_layout.constEnd(); ++it) {
-        HuffmanNode* node = it.key();
-        QPointF pPos = it.value().pos;
-
-        auto drawEdge = [&](HuffmanNode* childNode) {
-            if (!childNode) return;
-            if (!m_layout.contains(childNode)) return;
-
-            QPointF cPos = m_layout.value(childNode).pos;
-
-            // 计算从父到子矩形边缘的连线（避免穿过节点中心）
-            // 这里假定矩形宽度稍后计算；先用一个估算高度 = 24
-            double nodeH = 24.0;
-
-            QPointF pBottom(pPos.x(), pPos.y() + nodeH / 2.0);
-            QPointF cTop   (cPos.x(), cPos.y() - nodeH / 2.0);
-
-            m_scene->addLine(QLineF(pBottom, cTop),
-                             QPen(QColor(180, 180, 200), 1.4));
-        };
-
-        drawEdge(node->left);
-        drawEdge(node->right);
-    }
-
-    // 2. 再画节点和文字
-    for (auto it = m_layout.constBegin(); it != m_layout.constEnd(); ++it) {
-        HuffmanNode* node = it.key();
-        QPointF center = it.value().pos;
-
-        // 准备显示文字
-        QString text;
-        if (!node->left && !node->right) {
-            QChar c = node->ch;
-            QString showChar;
-            if (c == ' ')      showChar = "[sp]";
-            else if (c == '\n') showChar = "[\\n]";
-            else if (c == '\t') showChar = "[\\t]";
-            else               showChar = c;
-            text = QString("%1\n%2").arg(showChar).arg(node->freq);
-        } else {
-            text = QString::number(node->freq);
-        }
-
-        // 计算文本实际尺寸，给节点留足空间
-        QRectF textRect = fm.boundingRect(QRect(0, 0, 1000, 1000),
-                                          Qt::AlignCenter | Qt::TextWordWrap,
-                                          text);
-        double marginW = 10.0;
-        double marginH = 4.0;
-        double rectW = qMax(m_minNodeWidth, textRect.width() + marginW * 2);
-        double rectH = textRect.height() + marginH * 2;
-
-        QRectF nodeRect(center.x() - rectW / 2.0,
-                        center.y() - rectH / 2.0,
-                        rectW, rectH);
-
-        // 更新：为后续画线修正高度，避免线条插进矩形内部
-        // 这里直接在 layout 中更新高度信息方便。
-        // 注意：线条部分之前用了固定 24，这里可以稍微大些也没关系，不会看出明显穿帮。
-        // 若要更精确，可以把高度也存进 LayoutInfo 并用它画线。
-        // 简化起见，这里仅根据视觉效果设置一个稍大的值即可。
-        // （如需更严谨我可以再给你一版带高度的 LayoutInfo）
-        Q_UNUSED(nodeRect);
-
-        QGraphicsRectItem* box = m_scene->addRect(
-            nodeRect,
-            Qt::NoPen,
-            QBrush(QColor(110, 180, 255, 220)));
-        box->setZValue(1);
-
-        QGraphicsTextItem* textItem = m_scene->addText(text, font);
-        textItem->setDefaultTextColor(Qt::white);
-        QRectF br = textItem->boundingRect();
-        textItem->setPos(center.x() - br.width()/2.0,
-                         center.y() - br.height()/2.0);
-        textItem->setZValue(2);
-    }
 }
 
 void HuffmanTreeWidget::wheelEvent(QWheelEvent* event)
