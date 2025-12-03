@@ -81,6 +81,9 @@ private:
     HuffmanCodec m_codec;
     QMap<QChar, int> m_freqMap;
     QHash<QChar, QString> m_codes;
+    
+    // 保存最后一次译码的纯文本，用于比较校验
+    QString m_lastDecodedContent;
 
     // Socket
     NetworkServer* m_server;

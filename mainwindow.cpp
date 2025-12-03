@@ -412,6 +412,10 @@ void MainWindow::onDecodeLocal()
     
     QString time = QTime::currentTime().toString("HH:mm:ss");
     m_textDecoded->append(QString("[%1] 本地译码: %2").arg(time).arg(decoded));
+    
+    // 保存纯文本用于校验
+    m_lastDecodedContent = decoded;
+    
     showStatus(tr("已完成本地译码"));
 }
 
@@ -419,11 +423,17 @@ void MainWindow::onDecodeLocal()
 void MainWindow::onCompare()
 {
     QString src = m_textSource->toPlainText();
-    QString dec = m_textDecoded->toPlainText();
+    // 使用最后一次成功译码的纯文本进行比较
+    QString dec = m_lastDecodedContent;
+
+    if (dec.isEmpty()) {
+        QMessageBox::warning(this, tr("提示"), tr("尚未进行译码，无法比较。"));
+        return;
+    }
 
     if (src == dec) {
         QMessageBox::information(this, tr("比较结果"),
-                                 tr("译码正确，原文与译码结果完全一致。"));
+                                 tr("校验成功！\n原文与最后一次译码结果完全一致。"));
     } else {
         int len1 = src.length();
         int len2 = dec.length();
@@ -439,9 +449,10 @@ void MainWindow::onCompare()
             diffIndex = minLen;
 
         QMessageBox::warning(this, tr("比较结果"),
-                             tr("译码与原文不一致。\n"
-                                "原文长度: %1, 译码长度: %2\n"
-                                "第一个不同位置索引: %3")
+                             tr("校验失败。\n"
+                                "原文长度: %1\n"
+                                "译码长度: %2\n"
+                                "首个差异位置: %3")
                                  .arg(len1).arg(len2).arg(diffIndex));
     }
 }
@@ -517,6 +528,8 @@ void MainWindow::onServerDataReceived(const QString &data)
         QString decoded = m_codec.decode(data, &ok);
         if (ok) {
             m_textDecoded->append(QString("[%1] %2").arg(time).arg(decoded));
+            // 更新最后一次译码内容，方便校验
+            m_lastDecodedContent = decoded;
         }
     }
 }
@@ -544,6 +557,8 @@ void MainWindow::onClientDataReceived(const QString &data)
         QString decoded = m_codec.decode(data, &ok);
         if (ok) {
             m_textDecoded->append(QString("[%1] %2").arg(time).arg(decoded));
+            // 更新最后一次译码内容，方便校验
+            m_lastDecodedContent = decoded;
         }
     }
 }

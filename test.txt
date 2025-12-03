@@ -1,0 +1,6 @@
+Huffman coding is a popular algorithm used for lossless data compression.
+It was developed by David Huffman in 1952.
+This is a test message for the course design demonstration.
+The quick brown fox jumps over the lazy dog.
+1234567890
+Thank you!
