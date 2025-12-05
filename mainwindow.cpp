@@ -20,6 +20,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QTime>
+#include <QInputDialog>
 
 // 构造函数：初始化 UI 和网络组件
 MainWindow::MainWindow(QWidget* parent)
@@ -488,8 +489,15 @@ void MainWindow::onConnectToServer()
         QMessageBox::information(this, tr("提示"), tr("已经连接到服务器。"));
         return;
     }
-    m_client->connectToServer(QHostAddress(QHostAddress::LocalHost).toString(), 5555);
-    showStatus(tr("正在连接服务器..."));
+
+    bool ok;
+    QString ip = QInputDialog::getText(this, tr("连接服务器"),
+                                       tr("请输入服务器 IP 地址:"), QLineEdit::Normal,
+                                       "127.0.0.1", &ok);
+    if (!ok || ip.isEmpty()) return;
+
+    m_client->connectToServer(ip, 5555);
+    showStatus(tr("正在连接服务器 %1...").arg(ip));
 }
 
 // 客户端发送：通过 Socket 发送编码后的数据

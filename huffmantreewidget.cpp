@@ -113,7 +113,7 @@ void HuffmanTreeWidget::onAnimationStep()
     // 每次绘制后稍微调整视图以确保新节点可见（可选）
     // ensureVisible(m_nodeItems[node]);
 }
-
+// 绘制单个节点及其连线
 void HuffmanTreeWidget::drawNode(HuffmanNode* node)
 {
     if (!m_layout.contains(node)) return;
